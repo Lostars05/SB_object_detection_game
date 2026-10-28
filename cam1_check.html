@@ -1,0 +1,555 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+    <title>GAME CAM - 촬영 확인</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+        }
+
+        /* 전체 화면 */
+        .container {
+            width: 100%;
+            height: 100vh;
+            height: 100dvh;
+
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+
+            padding:
+                max(12px, env(safe-area-inset-top))
+                max(12px, env(safe-area-inset-right))
+                max(12px, env(safe-area-inset-bottom))
+                max(12px, env(safe-area-inset-left));
+        }
+
+        /* 상단 점수 */
+        #game-score {
+            text-align: center;
+            font-size: clamp(16px, 4vw, 22px);
+            font-weight: bold;
+            padding: 8px 0;
+            flex-shrink: 0;
+        }
+
+        /* 사진 영역 */
+        .photo-area {
+            flex: 1;
+            min-height: 0;
+            min-width: 0;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #photo-container {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            aspect-ratio: 4 / 3;
+
+            background: #111;
+            border-radius: 14px;
+            overflow: hidden;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 촬영한 사진 */
+        #captured-photo {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+
+        #photo-message {
+            color: #aaa;
+            font-size: 14px;
+            text-align: center;
+            padding: 20px;
+        }
+
+        /* 하단 영역 */
+        .bottom-area {
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-shrink: 0;
+        }
+
+        /* 촬영 당시 퍼센트 박스 */
+        #detection-panel {
+            flex: 1;
+            min-width: 0;
+            min-height: 90px;
+            max-height: 22dvh;
+
+            overflow-y: auto;
+            padding: 14px;
+
+            background: #181818;
+            border: 1px solid #444;
+            border-radius: 12px;
+        }
+
+        #detection-panel h4 {
+            font-size: clamp(12px, 3vw, 15px);
+            margin-bottom: 10px;
+        }
+
+        .detection-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+
+            margin-bottom: 7px;
+            font-size: clamp(11px, 3vw, 14px);
+        }
+
+        .detection-item span:last-child {
+            white-space: nowrap;
+        }
+
+        /* 확인 버튼 */
+        #btn-confirm {
+            width: clamp(76px, 21vw, 96px);
+            height: clamp(64px, 18vw, 82px);
+
+            flex-shrink: 0;
+            border: none;
+            border-radius: 12px;
+
+            background: #fff;
+            color: #000;
+
+            font-size: 17px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        #btn-confirm:active {
+            transform: scale(0.96);
+        }
+
+        #btn-confirm:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 상태 표시 */
+        #status {
+            text-align: center;
+            font-size: 11px;
+            color: #aaa;
+            flex-shrink: 0;
+        }
+
+        /* 가로 화면 대응 */
+        @media (orientation: landscape) {
+            .container {
+                gap: 6px;
+            }
+
+            #detection-panel {
+                min-height: 55px;
+                max-height: 20dvh;
+                padding: 8px 12px;
+            }
+
+            #btn-confirm {
+                width: 76px;
+                height: 55px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <!-- 1. 현재 점수 -->
+        <h3 id="game-score">
+            현재 점수: 0.00점
+        </h3>
+
+        <!-- 2. 촬영한 사진 -->
+        <div class="photo-area" id="photo-area">
+
+            <div id="photo-container">
+
+                <img
+                    id="captured-photo"
+                    alt="촬영된 사진"
+                >
+
+                <p id="photo-message">
+                    촬영 결과를 불러오는 중...
+                </p>
+
+            </div>
+
+        </div>
+
+        <!-- 3. 탐지 결과 및 확인 버튼 -->
+        <div class="bottom-area">
+
+            <!-- 촬영 당시 퍼센트 -->
+            <div id="detection-panel">
+
+                <h4>촬영 결과</h4>
+
+                <div id="detection-list">
+                    데이터를 불러오는 중...
+                </div>
+
+            </div>
+
+            <!-- 확인 버튼 -->
+            <button
+                id="btn-confirm"
+                type="button"
+                disabled
+            >
+                확인
+            </button>
+
+        </div>
+
+        <p id="status">
+            촬영 결과 확인
+        </p>
+
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. 기본 설정
+        // ==========================================
+
+        // 추후 제작할 6번 페이지
+        const NEXT_PAGE = "select.html";
+
+        // 촬영 결과 데이터
+        let captureData = null;
+
+        const photo =
+            document.getElementById("captured-photo");
+
+        const photoMessage =
+            document.getElementById("photo-message");
+
+        const photoArea =
+            document.getElementById("photo-area");
+
+        const photoContainer =
+            document.getElementById("photo-container");
+
+        const detectionList =
+            document.getElementById("detection-list");
+
+        const confirmBtn =
+            document.getElementById("btn-confirm");
+
+        const statusText =
+            document.getElementById("status");
+
+        // ==========================================
+        // 2. 페이지 실행
+        // ==========================================
+
+        window.addEventListener(
+            "DOMContentLoaded",
+            () => {
+                loadCaptureData();
+            }
+        );
+
+        // ==========================================
+        // 3. 촬영 데이터 불러오기
+        // ==========================================
+
+        function loadCaptureData() {
+
+            // cam1.html에서 임시 저장한 데이터
+            const saved =
+                sessionStorage.getItem("cam1Pending");
+
+            if (!saved) {
+
+                photoMessage.textContent =
+                    "촬영된 사진이 없습니다.";
+
+                detectionList.textContent =
+                    "촬영 데이터 없음";
+
+                statusText.textContent =
+                    "먼저 카메라에서 사진을 촬영해주세요.";
+
+                return;
+            }
+
+            try {
+
+                captureData = JSON.parse(saved);
+
+                if (
+                    !captureData ||
+                    !Array.isArray(captureData.detections) ||
+                    !captureData.image
+                ) {
+                    throw new Error("촬영 데이터 형식 오류");
+                }
+
+                // 촬영 당시 사진 표시
+                photo.onload = () => {
+
+                    photo.style.display = "block";
+
+                    photoMessage.style.display = "none";
+
+                    resizePhoto();
+                };
+
+                photo.onerror = () => {
+
+                    photo.style.display = "none";
+
+                    photoMessage.textContent =
+                        "사진을 불러올 수 없습니다.";
+
+                    confirmBtn.disabled = true;
+                };
+
+                photo.src = captureData.image;
+
+                // 촬영 당시 객체 및 퍼센트
+                showDetections(captureData.detections);
+
+                // 확인 버튼 활성화
+                confirmBtn.disabled = false;
+
+                statusText.textContent =
+                    "촬영 결과가 고정되었습니다.";
+
+            } catch (error) {
+
+                console.error(
+                    "촬영 데이터 불러오기 실패:",
+                    error
+                );
+
+                photoMessage.textContent =
+                    "사진을 불러올 수 없습니다.";
+
+                detectionList.textContent =
+                    "데이터 오류";
+
+                confirmBtn.disabled = true;
+
+                statusText.textContent =
+                    "촬영 데이터를 확인해주세요.";
+            }
+        }
+
+        // ==========================================
+        // 4. 화면 크기 자동 조절
+        // ==========================================
+
+        function resizePhoto() {
+
+            if (
+                !photo.naturalWidth ||
+                !photo.naturalHeight
+            ) {
+                return;
+            }
+
+            const ratio =
+                photo.naturalWidth / photo.naturalHeight;
+
+            const availableWidth =
+                photoArea.clientWidth;
+
+            const availableHeight =
+                photoArea.clientHeight;
+
+            if (
+                !availableWidth ||
+                !availableHeight
+            ) {
+                return;
+            }
+
+            const width = Math.min(
+                availableWidth,
+                availableHeight * ratio,
+                900
+            );
+
+            const height = width / ratio;
+
+            photoContainer.style.width =
+                width + "px";
+
+            photoContainer.style.height =
+                height + "px";
+        }
+
+        const resizeObserver =
+            new ResizeObserver(resizePhoto);
+
+        resizeObserver.observe(photoArea);
+
+        window.addEventListener(
+            "resize",
+            resizePhoto
+        );
+
+        // ==========================================
+        // 5. 촬영 당시 퍼센트 표시
+        // ==========================================
+
+        function showDetections(detections) {
+
+            detectionList.replaceChildren();
+
+            if (detections.length === 0) {
+
+                detectionList.textContent =
+                    "탐지된 객체 없음";
+
+                return;
+            }
+
+            // 화면 위쪽에 위치한 객체부터 정렬
+            const sorted = [...detections].sort(
+                (a, b) => (a.y ?? 0) - (b.y ?? 0)
+            );
+
+            sorted.forEach((det, index) => {
+
+                const item =
+                    document.createElement("div");
+
+                item.className = "detection-item";
+
+                const name =
+                    document.createElement("span");
+
+                name.textContent =
+                    `${index + 1}. ${det.label}`;
+
+                const percent =
+                    document.createElement("span");
+
+                const confidencePercent =
+                    Number.isFinite(Number(det.percentage))
+                        ? Number(det.percentage)
+                        : Number(det.confidence) * 100;
+
+                percent.textContent =
+                    `${confidencePercent.toFixed(1)}%`;
+
+                item.appendChild(name);
+                item.appendChild(percent);
+
+                detectionList.appendChild(item);
+            });
+        }
+
+        // ==========================================
+        // 6. 확인 버튼
+        // ==========================================
+
+        confirmBtn.addEventListener("click", () => {
+
+            if (!captureData) {
+                return;
+            }
+
+            // 촬영 사진을 제외하고 데이터만 저장
+            const gameData = {
+
+                capturedAt: captureData.capturedAt,
+
+                detections: captureData.detections.map(
+                    det => ({
+
+                        classId: det.classId,
+
+                        label: det.label,
+
+                        confidence: det.confidence,
+
+                        percentage: det.percentage
+
+                    })
+                )
+            };
+
+            try {
+
+                // 다음 페이지에서 사용할 데이터
+                sessionStorage.setItem(
+                    "gameCapture",
+                    JSON.stringify(gameData)
+                );
+
+                // 사진이 들어 있는 임시 데이터 삭제
+                sessionStorage.removeItem("cam1Pending");
+
+                // 현재 페이지의 사진 참조 정리
+                photo.removeAttribute("src");
+                captureData = null;
+
+                confirmBtn.disabled = true;
+
+                // select.html은 아직 제작 전
+                statusText.textContent =
+                    "확인 완료! 탐지 데이터가 저장되었습니다.";
+
+                // select.html 제작 후 아래 주석을 해제
+                // location.href = NEXT_PAGE;
+
+            } catch (error) {
+
+                console.error(
+                    "데이터 저장 실패:",
+                    error
+                );
+
+                statusText.textContent =
+                    "데이터 저장 실패";
+            }
+        });
+
+    </script>
+
+</body>
+</html>
