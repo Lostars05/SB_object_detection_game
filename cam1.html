@@ -1,0 +1,1207 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+    <title>GAME CAM</title>
+
+    <!-- ONNX Runtime -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+        }
+
+        /* 전체 화면 */
+        .container {
+            width: 100%;
+            height: 100vh;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+
+            padding:
+                max(12px, env(safe-area-inset-top))
+                max(12px, env(safe-area-inset-right))
+                max(12px, env(safe-area-inset-bottom))
+                max(12px, env(safe-area-inset-left));
+        }
+
+        /* 상단 점수 */
+        #game-score {
+            text-align: center;
+            font-size: clamp(16px, 4.5vw, 23px);
+            font-weight: bold;
+            padding: 10px 0;
+            flex-shrink: 0;
+        }
+
+        /* 카메라 영역 */
+        .camera-area {
+            flex: 1;
+            min-height: 0;
+            min-width: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #webcam-container {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            aspect-ratio: 4 / 3;
+            background: #111;
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        /* 카메라와 바운딩 박스 */
+        #webcam,
+        #canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: fill;
+        }
+
+        #canvas {
+            pointer-events: none;
+        }
+
+        /* 하단 영역 */
+        .bottom-area {
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+            flex-shrink: 0;
+        }
+
+        /* 실시간 탐지 정보창 */
+        #detection-panel {
+            flex: 1;
+            min-width: 0;
+            min-height: 85px;
+            max-height: min(22dvh, 180px);
+            overflow-y: auto;
+
+            background: #181818;
+            border: 1px solid #444;
+            border-radius: 12px;
+            padding: clamp(10px, 3vw, 16px);
+            font-size: clamp(11px, 3vw, 14px);
+        }
+
+        #detection-panel h4 {
+            font-size: clamp(12px, 3.2vw, 15px);
+            margin-bottom: 10px;
+        }
+
+        .detection-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .detection-item span:last-child {
+            white-space: nowrap;
+        }
+
+        /* 원형 촬영 버튼 */
+        #btn-capture {
+            width: clamp(58px, 17vw, 80px);
+            height: clamp(58px, 17vw, 80px);
+            flex-shrink: 0;
+            border-radius: 50%;
+            border: 5px solid #555;
+            background: #fff;
+            box-shadow: 0 0 0 3px #fff;
+            cursor: pointer;
+            margin: 4px;
+            padding: 0;
+        }
+
+        #btn-capture:active {
+            transform: scale(0.95);
+        }
+
+        #btn-capture:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 상태 표시 */
+        #status {
+            text-align: center;
+            font-size: 11px;
+            color: #aaa;
+            flex-shrink: 0;
+        }
+
+        /* 가로 화면 대응 */
+        @media (orientation: landscape) {
+            .container {
+                gap: 6px;
+            }
+
+            #game-score {
+                padding: 0;
+            }
+
+            #bottom-area {
+                gap: 12px;
+            }
+
+            #detection-panel {
+                min-height: 55px;
+                max-height: 18dvh;
+                padding: 8px 12px;
+            }
+
+            #btn-capture {
+                width: 55px;
+                height: 55px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <!-- 상단 점수 -->
+        <h3 id="game-score">
+            현재 점수: 0.00점
+        </h3>
+
+        <!-- 카메라 영역 -->
+        <div class="camera-area" id="camera-area">
+
+            <div id="webcam-container">
+
+                <video
+                    id="webcam"
+                    autoplay
+                    playsinline
+                    muted>
+                </video>
+
+                <!-- 바운딩 박스 -->
+                <canvas id="canvas"></canvas>
+
+            </div>
+
+        </div>
+
+        <!-- 하단 탐지 결과 및 촬영 버튼 -->
+        <div class="bottom-area">
+
+            <div id="detection-panel">
+
+                <h4>실시간 탐지 결과</h4>
+
+                <div id="detection-list">
+                    모델 준비 중...
+                </div>
+
+            </div>
+
+            <!-- 촬영 버튼 -->
+            <button
+                id="btn-capture"
+                type="button"
+                aria-label="촬영하기"
+                disabled>
+            </button>
+
+        </div>
+
+        <p id="status">
+            모델을 불러오는 중...
+        </p>
+
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. 기본 설정
+        // ==========================================
+
+        const MODEL_PATH = "best.onnx";
+
+        // 4번 촬영 확인 페이지
+        const NEXT_PAGE = "cam1_check.html";
+
+        // 실제 학습된 클래스 순서
+        const CLASS_NAMES = [
+            "T",         // 0
+            "backpack",  // 1
+            "cup",       // 2
+            "person",    // 3
+            "phone",     // 4
+            "pizza",     // 5
+            "shoe",      // 6
+            "snorlax",   // 7
+            "star",      // 8
+            "towel"      // 9
+        ];
+
+        const CONF_THRESHOLD = 0.35;
+        const IOU_THRESHOLD = 0.45;
+        const MAX_DETECTIONS = 30;
+
+        let session = null;
+        let videoStream = null;
+
+        let detecting = false;
+        let capturing = false;
+        let modelReady = false;
+        let cameraReady = false;
+
+        let latestDetections = [];
+
+        let inputWidth = 640;
+        let inputHeight = 640;
+
+        const video =
+            document.getElementById("webcam");
+
+        const canvas =
+            document.getElementById("canvas");
+
+        const ctx = canvas.getContext("2d");
+
+        const cameraArea =
+            document.getElementById("camera-area");
+
+        const cameraContainer =
+            document.getElementById("webcam-container");
+
+        const statusText =
+            document.getElementById("status");
+
+        const detectionList =
+            document.getElementById("detection-list");
+
+        const captureBtn =
+            document.getElementById("btn-capture");
+
+        const inputCanvas =
+            document.createElement("canvas");
+
+        const inputCtx = inputCanvas.getContext(
+            "2d",
+            { willReadFrequently: true }
+        );
+
+        // ==========================================
+        // 2. 초기 실행
+        // ==========================================
+
+        window.addEventListener("DOMContentLoaded", async () => {
+
+                if (sessionStorage.getItem('canPlay') !== 'true') {
+                    alert("비정상적인 접근이거나 이미 완료된 단계입니다.");
+                    location.replace("index.html"); // 메인 화면으로 강제 추방
+                    return;
+                }
+
+                // 이전 촬영 임시 데이터 초기화
+                sessionStorage.removeItem("cam1Pending");
+
+                await Promise.all([
+                    loadModel(),
+                    initWebcam()
+                ]);
+
+                if (modelReady && cameraReady) {
+                    startDetectionLoop();
+                }
+            }
+        );
+
+        // ==========================================
+        // 3. ONNX 모델 로드
+        // ==========================================
+
+        async function loadModel() {
+            try {
+                statusText.textContent =
+                    "모델 로딩 중...";
+
+                session =
+                    await ort.InferenceSession.create(
+                        MODEL_PATH,
+                        {
+                            executionProviders: ["wasm"]
+                        }
+                    );
+
+                const inputName =
+                    session.inputNames[0];
+
+                const metadata =
+                    session.inputMetadata[inputName];
+
+                const dims =
+                    metadata?.dimensions ||
+                    metadata?.dims;
+
+                if (dims && dims.length === 4) {
+                    if (Number(dims[2]) > 0) {
+                        inputHeight = Number(dims[2]);
+                    }
+
+                    if (Number(dims[3]) > 0) {
+                        inputWidth = Number(dims[3]);
+                    }
+                }
+
+                inputCanvas.width = inputWidth;
+                inputCanvas.height = inputHeight;
+
+                console.log(
+                    "모델 입력:",
+                    session.inputNames
+                );
+
+                console.log(
+                    "모델 출력:",
+                    session.outputNames
+                );
+
+                modelReady = true;
+
+                statusText.textContent =
+                    "모델 로드 완료";
+
+            } catch (error) {
+                console.error(
+                    "모델 로드 실패:",
+                    error
+                );
+
+                statusText.textContent =
+                    "모델 로드 실패: best.onnx 확인";
+
+                detectionList.textContent =
+                    "모델 로드 실패";
+            }
+        }
+
+        // ==========================================
+        // 4. 웹캠 실행
+        // ==========================================
+
+        async function initWebcam() {
+            try {
+                videoStream =
+                    await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            width: { ideal: 640 },
+                            height: { ideal: 480 },
+                            facingMode: "environment"
+                        },
+                        audio: false
+                    });
+
+                video.srcObject = videoStream;
+
+                await video.play();
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                cameraReady = true;
+
+                resizeCamera();
+
+                requestAnimationFrame(renderFrame);
+
+            } catch (error) {
+                console.error(
+                    "웹캠 실행 실패:",
+                    error
+                );
+
+                statusText.textContent =
+                    "웹캠 실행 실패";
+
+                alert(
+                    "웹캠 권한 및 HTTPS/localhost 접속을 확인하세요."
+                );
+            }
+        }
+
+        // ==========================================
+        // 5. 모바일 화면 비율 자동 조절
+        // ==========================================
+
+        function resizeCamera() {
+            if (
+                !video.videoWidth ||
+                !video.videoHeight
+            ) {
+                return;
+            }
+
+            const ratio =
+                video.videoWidth / video.videoHeight;
+
+            const areaWidth =
+                cameraArea.clientWidth;
+
+            const areaHeight =
+                cameraArea.clientHeight;
+
+            if (!areaWidth || !areaHeight) return;
+
+            const width = Math.min(
+                areaWidth,
+                areaHeight * ratio,
+                900
+            );
+
+            const height = width / ratio;
+
+            cameraContainer.style.width =
+                width + "px";
+
+            cameraContainer.style.height =
+                height + "px";
+        }
+
+        new ResizeObserver(resizeCamera)
+            .observe(cameraArea);
+
+        window.addEventListener(
+            "resize",
+            resizeCamera
+        );
+
+        // ==========================================
+        // 6. 카메라 이미지를 텐서로 변환
+        // ==========================================
+
+        function prepareInput() {
+            const scale = Math.min(
+                inputWidth / video.videoWidth,
+                inputHeight / video.videoHeight
+            );
+
+            const drawWidth =
+                video.videoWidth * scale;
+
+            const drawHeight =
+                video.videoHeight * scale;
+
+            const padX =
+                (inputWidth - drawWidth) / 2;
+
+            const padY =
+                (inputHeight - drawHeight) / 2;
+
+            inputCtx.fillStyle =
+                "rgb(114,114,114)";
+
+            inputCtx.fillRect(
+                0, 0,
+                inputWidth,
+                inputHeight
+            );
+
+            inputCtx.drawImage(
+                video,
+                padX,
+                padY,
+                drawWidth,
+                drawHeight
+            );
+
+            const pixels =
+                inputCtx.getImageData(
+                    0, 0,
+                    inputWidth,
+                    inputHeight
+                ).data;
+
+            const area =
+                inputWidth * inputHeight;
+
+            const floatData =
+                new Float32Array(area * 3);
+
+            for (let i = 0; i < area; i++) {
+                floatData[i] =
+                    pixels[i * 4] / 255;
+
+                floatData[area + i] =
+                    pixels[i * 4 + 1] / 255;
+
+                floatData[area * 2 + i] =
+                    pixels[i * 4 + 2] / 255;
+            }
+
+            return {
+                tensor: new ort.Tensor(
+                    "float32",
+                    floatData,
+                    [1, 3, inputHeight, inputWidth]
+                ),
+                scale,
+                padX,
+                padY
+            };
+        }
+
+        // ==========================================
+        // 7. 실시간 ONNX 추론
+        // ==========================================
+
+        async function startDetectionLoop() {
+            if (detecting) return;
+
+            detecting = true;
+
+            while (
+                session &&
+                videoStream &&
+                !capturing &&
+                video.readyState >= 2
+            ) {
+                try {
+                    const {
+                        tensor,
+                        scale,
+                        padX,
+                        padY
+                    } = prepareInput();
+
+                    const feeds = {};
+
+                    feeds[session.inputNames[0]] =
+                        tensor;
+
+                    const results =
+                        await session.run(feeds);
+
+                    // 촬영 중에는 추론 결과를 갱신하지 않음
+                    if (capturing) break;
+
+                    const output =
+                        results[session.outputNames[0]];
+
+                    let detections =
+                        processOutput(
+                            output,
+                            scale,
+                            padX,
+                            padY
+                        );
+
+                    detections =
+                        applyNMS(detections);
+
+                    latestDetections = detections;
+
+                    updateDetectionPanel(detections);
+
+                    // 첫 추론 이후 촬영 버튼 활성화
+                    captureBtn.disabled = false;
+
+                    statusText.textContent =
+                        `실시간 탐지 중 | 객체 ${detections.length}개`;
+
+                } catch (error) {
+                    console.error(
+                        "추론 오류:",
+                        error
+                    );
+
+                    statusText.textContent =
+                        "추론 오류: 모델 출력 확인";
+
+                    latestDetections = [];
+
+                    detectionList.textContent =
+                        "추론 오류";
+
+                    captureBtn.disabled = true;
+                    break;
+                }
+
+                await new Promise(resolve =>
+                    requestAnimationFrame(resolve)
+                );
+            }
+
+            detecting = false;
+        }
+
+        // ==========================================
+        // 8. ONNX 출력 해석
+        // ==========================================
+
+        function processOutput(
+            output,
+            scale,
+            padX,
+            padY
+        ) {
+            const data = output.data;
+            const dims = output.dims;
+
+            if (
+                dims.length !== 2 &&
+                dims.length !== 3
+            ) {
+                throw new Error(
+                    "지원하지 않는 ONNX 출력 구조"
+                );
+            }
+
+            const rows =
+                dims.length === 3
+                    ? dims[1]
+                    : dims[0];
+
+            const cols =
+                dims.length === 3
+                    ? dims[2]
+                    : dims[1];
+
+            const transposed =
+                rows < cols && rows >= 5;
+
+            const count =
+                transposed ? cols : rows;
+
+            const attributes =
+                transposed ? rows : cols;
+
+            if (attributes < 5) {
+                throw new Error(
+                    "출력 항목 부족"
+                );
+            }
+
+            function value(i, j) {
+                return transposed
+                    ? data[j * count + i]
+                    : data[i * attributes + j];
+            }
+
+            const isEndToEnd =
+                attributes === 6 &&
+                count <= 1000;
+
+            const detections = [];
+
+            for (let i = 0; i < count; i++) {
+                let x1, y1, x2, y2;
+                let confidence = 0;
+                let classId = 0;
+
+                if (isEndToEnd) {
+                    // YOLO26 End-to-End
+                    // x1, y1, x2, y2, 점수, 클래스
+                    x1 = value(i, 0);
+                    y1 = value(i, 1);
+                    x2 = value(i, 2);
+                    y2 = value(i, 3);
+
+                    confidence = value(i, 4);
+                    classId = Math.round(value(i, 5));
+
+                } else {
+                    // 일반 YOLO 출력
+                    const cx = value(i, 0);
+                    const cy = value(i, 1);
+                    const w = value(i, 2);
+                    const h = value(i, 3);
+
+                    const hasObjectness =
+                        attributes ===
+                        CLASS_NAMES.length + 5;
+
+                    const classStart =
+                        hasObjectness ? 5 : 4;
+
+                    const objectness =
+                        hasObjectness
+                            ? value(i, 4)
+                            : 1;
+
+                    for (
+                        let c = classStart;
+                        c < attributes;
+                        c++
+                    ) {
+                        const score =
+                            objectness * value(i, c);
+
+                        if (score > confidence) {
+                            confidence = score;
+                            classId = c - classStart;
+                        }
+                    }
+
+                    x1 = cx - w / 2;
+                    y1 = cy - h / 2;
+                    x2 = cx + w / 2;
+                    y2 = cy + h / 2;
+                }
+
+                if (
+                    !Number.isFinite(confidence) ||
+                    confidence < CONF_THRESHOLD ||
+                    classId < 0 ||
+                    classId >= CLASS_NAMES.length
+                ) {
+                    continue;
+                }
+
+                x1 = (x1 - padX) / scale;
+                y1 = (y1 - padY) / scale;
+                x2 = (x2 - padX) / scale;
+                y2 = (y2 - padY) / scale;
+
+                x1 = Math.max(
+                    0,
+                    Math.min(canvas.width, x1)
+                );
+
+                y1 = Math.max(
+                    0,
+                    Math.min(canvas.height, y1)
+                );
+
+                x2 = Math.max(
+                    0,
+                    Math.min(canvas.width, x2)
+                );
+
+                y2 = Math.max(
+                    0,
+                    Math.min(canvas.height, y2)
+                );
+
+                if (x2 <= x1 || y2 <= y1) {
+                    continue;
+                }
+
+                detections.push({
+                    x: x1,
+                    y: y1,
+                    width: x2 - x1,
+                    height: y2 - y1,
+                    confidence,
+                    classId,
+                    label: CLASS_NAMES[classId]
+                });
+            }
+
+            return detections;
+        }
+
+        // ==========================================
+        // 9. 중복 바운딩 박스 제거
+        // ==========================================
+
+        function calculateIoU(a, b) {
+            const x1 =
+                Math.max(a.x, b.x);
+
+            const y1 =
+                Math.max(a.y, b.y);
+
+            const x2 = Math.min(
+                a.x + a.width,
+                b.x + b.width
+            );
+
+            const y2 = Math.min(
+                a.y + a.height,
+                b.y + b.height
+            );
+
+            const w =
+                Math.max(0, x2 - x1);
+
+            const h =
+                Math.max(0, y2 - y1);
+
+            const intersection = w * h;
+
+            const union =
+                a.width * a.height +
+                b.width * b.height -
+                intersection;
+
+            return union > 0
+                ? intersection / union
+                : 0;
+        }
+
+        function applyNMS(detections) {
+            detections.sort(
+                (a, b) =>
+                    b.confidence - a.confidence
+            );
+
+            const selected = [];
+
+            for (const detection of detections) {
+                const overlaps =
+                    selected.some(existing =>
+                        existing.classId ===
+                            detection.classId &&
+                        calculateIoU(
+                            existing,
+                            detection
+                        ) > IOU_THRESHOLD
+                    );
+
+                if (!overlaps) {
+                    selected.push(detection);
+                }
+
+                if (
+                    selected.length >=
+                    MAX_DETECTIONS
+                ) {
+                    break;
+                }
+            }
+
+            // 카메라에서 위쪽에 있는 순서
+            selected.sort(
+                (a, b) => a.y - b.y
+            );
+
+            return selected;
+        }
+
+        // ==========================================
+        // 10. 바운딩 박스 그리기
+        // ==========================================
+
+        function drawBoundingBox(targetCtx, det) {
+            const color = "#00ff88";
+
+            targetCtx.strokeStyle = color;
+            targetCtx.lineWidth = 3;
+
+            targetCtx.strokeRect(
+                det.x,
+                det.y,
+                det.width,
+                det.height
+            );
+
+            const text =
+                `${det.label} ` +
+                `${(det.confidence * 100).toFixed(1)}%`;
+
+            targetCtx.font =
+                "bold 16px Arial";
+
+            const textWidth =
+                targetCtx.measureText(text).width;
+
+            const labelWidth =
+                textWidth + 12;
+
+            const labelHeight = 25;
+
+            const labelY =
+                Math.max(
+                    0,
+                    det.y - labelHeight
+                );
+
+            targetCtx.fillStyle = color;
+
+            targetCtx.fillRect(
+                det.x,
+                labelY,
+                labelWidth,
+                labelHeight
+            );
+
+            targetCtx.fillStyle = "#000";
+
+            targetCtx.fillText(
+                text,
+                det.x + 6,
+                labelY + 18
+            );
+        }
+
+        function renderFrame() {
+            if (capturing) return;
+
+            if (video.readyState >= 2) {
+                ctx.clearRect(
+                    0, 0,
+                    canvas.width,
+                    canvas.height
+                );
+
+                for (
+                    const detection of
+                    latestDetections
+                ) {
+                    drawBoundingBox(ctx, detection);
+                }
+            }
+
+            requestAnimationFrame(renderFrame);
+        }
+
+        // ==========================================
+        // 11. 실시간 신뢰도 표시
+        // ==========================================
+
+        function updateDetectionPanel(detections) {
+            detectionList.replaceChildren();
+
+            if (detections.length === 0) {
+                detectionList.textContent =
+                    "탐지된 객체 없음";
+                return;
+            }
+
+            detections.forEach(
+                (det, index) => {
+
+                    const item =
+                        document.createElement("div");
+
+                    item.className =
+                        "detection-item";
+
+                    const name =
+                        document.createElement("span");
+
+                    name.textContent =
+                        `${index + 1}. ${det.label}`;
+
+                    const percent =
+                        document.createElement("span");
+
+                    percent.textContent =
+                        `${(det.confidence * 100).toFixed(1)}%`;
+
+                    item.appendChild(name);
+                    item.appendChild(percent);
+
+                    detectionList.appendChild(item);
+                }
+            );
+        }
+
+        // ==========================================
+        // 12. 촬영 버튼 기능
+        // ==========================================
+
+        captureBtn.addEventListener(
+            "click",
+            captureCurrentFrame
+        );
+
+        function captureCurrentFrame() {
+            if (
+                capturing ||
+                !modelReady ||
+                !cameraReady ||
+                captureBtn.disabled
+            ) {
+                return;
+            }
+
+            // 중복 촬영 방지
+            capturing = true;
+            captureBtn.disabled = true;
+
+            statusText.textContent =
+                "촬영 결과를 준비 중...";
+
+            // 마지막으로 완료된 탐지 결과 고정
+            const frozenDetections =
+                latestDetections.map(
+                    det => ({ ...det })
+                );
+
+            // 촬영 이미지용 별도 캔버스
+            const photoCanvas =
+                document.createElement("canvas");
+
+            // 브라우저 임시 저장 용량을 고려하여 축소
+            const maxSide = 960;
+
+            const photoScale = Math.min(
+                1,
+                maxSide / Math.max(
+                    video.videoWidth,
+                    video.videoHeight
+                )
+            );
+
+            photoCanvas.width = Math.max(
+                1,
+                Math.round(
+                    video.videoWidth * photoScale
+                )
+            );
+
+            photoCanvas.height = Math.max(
+                1,
+                Math.round(
+                    video.videoHeight * photoScale
+                )
+            );
+
+            const photoCtx =
+                photoCanvas.getContext("2d");
+
+            try {
+                // 1. 촬영 당시 카메라 화면
+                photoCtx.drawImage(
+                    video,
+                    0,
+                    0,
+                    photoCanvas.width,
+                    photoCanvas.height
+                );
+
+                // 2. 촬영 당시 바운딩 박스 합성
+                photoCtx.save();
+
+                photoCtx.scale(
+                    photoScale,
+                    photoScale
+                );
+
+                frozenDetections.forEach(
+                    det => drawBoundingBox(
+                        photoCtx,
+                        det
+                    )
+                );
+
+                photoCtx.restore();
+
+                // 3. 사진을 JPEG 문자열로 임시 생성
+                // 기기에 이미지 파일로 저장하지 않음
+                const imageData =
+                    photoCanvas.toDataURL(
+                        "image/jpeg",
+                        0.72
+                    );
+
+                // 4. 촬영 당시 탐지 데이터 구성
+                const captureData = {
+                    image: imageData,
+
+                    capturedAt:
+                        new Date().toISOString(),
+
+                    detections:
+                        frozenDetections.map(det => ({
+                            classId: det.classId,
+                            label: det.label,
+
+                            // 0~1 신뢰도
+                            confidence:
+                                det.confidence,
+
+                            // 퍼센트
+                            percentage: Number(
+                                (
+                                    det.confidence * 100
+                                ).toFixed(1)
+                            ),
+
+                            // 화면상 위치
+                            y: det.y
+                        }))
+                };
+
+                // 5. 4번 페이지용 임시 저장
+                sessionStorage.setItem(
+                    "cam1Pending",
+                    JSON.stringify(captureData)
+                );
+
+                // +) 이번 단계의 플레이 권한을 소모(제거)하고 기록을 덮어씌움
+                sessionStorage.removeItem('canPlay');
+
+                // 6. 4번 화면으로 이동
+                if (frozenDetections.length > 0) {
+                    location.replace("cam1_check.html");
+                } else {
+                    location.replace("cam1_none.html");
+                }
+
+            } catch (error) {
+                console.error(
+                    "촬영 데이터 저장 실패:",
+                    error
+                );
+
+                statusText.textContent =
+                    "촬영 결과 저장 실패";
+
+                // 실패하면 다시 촬영할 수 있도록 복구
+                capturing = false;
+                captureBtn.disabled = false;
+
+                requestAnimationFrame(renderFrame);
+
+                if (!detecting) {
+                    startDetectionLoop();
+                }
+            }
+        }
+
+        // ==========================================
+        // 13. 카메라 종료 처리
+        // ==========================================
+
+        window.addEventListener("pagehide", () => {
+            capturing = true;
+
+            if (videoStream) {
+                videoStream.getTracks().forEach(
+                    track => track.stop()
+                );
+            }
+        });
+
+    </script>
+
+</body>
+</html>
