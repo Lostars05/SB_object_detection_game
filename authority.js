@@ -191,10 +191,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 🔑 4가지 경우에 따른 서로 다른 5자리 승인 코드
         const CODES = {
-            SAVE_SCORE: "11111", // 1) 점수 저장 코드
-            PASS:       "22222", // 2) 패스(0점) 코드
-            RETRY:      "33333", // 3) 재시도 코드
-            END_GAME:   "44444"  // 4) 게임 종료 코드
+            SAVE_SCORE: "60626", // 1) 점수 저장 코드
+            PASS:       "40426", // 2) 패스(0점) 코드
+            RETRY:      "20226", // 3) 재시도 코드
+            END_GAME:   "00026"  // 4) 게임 종료 코드
         };
 
         if (enteredCode === CODES[action]) {
